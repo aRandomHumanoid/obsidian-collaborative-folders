@@ -25,6 +25,8 @@ export class SharedFolderWatcher {
   /** Paths we are currently writing locally — suppressed from vault events */
   private suppressedPaths = new Set<string>()
   private pendingAttachmentLocalization = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Coalesces bursts of LWW blob writes (Ink saves `.drawing` + `.png` together) into a single rebuild */
+  private embedRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
   private externalEditCallback: ((fileId: string, relativePath: string, content: string) => void) | null = null
   private attachmentLocalizationCallback: ((file: TFile) => Promise<void>) | null = null
@@ -424,7 +426,7 @@ export class SharedFolderWatcher {
         await this.vault.createBinary(fullPath, decrypted)
       }
       if (this.isLwwBlob(fullPath)) {
-        this.refreshOpenMarkdownPreviews()
+        this.scheduleEmbedRefresh()
       }
     } catch (err) {
       console.error(`[teams] Blob download failed for ${fullPath} (${contentHash}):`, err)
@@ -432,16 +434,32 @@ export class SharedFolderWatcher {
   }
 
   /**
+   * Schedule a coalesced rebuild of open markdown views. Ink saves a `.drawing`
+   * and its paired `.png` back-to-back; debouncing avoids two rebuilds for one
+   * logical save (and dampens visible flicker if the user is drawing rapidly).
+   */
+  private scheduleEmbedRefresh(): void {
+    if (this.embedRefreshTimer) clearTimeout(this.embedRefreshTimer)
+    this.embedRefreshTimer = setTimeout(() => {
+      this.embedRefreshTimer = null
+      this.refreshOpenMarkdownPreviews()
+    }, 250)
+  }
+
+  /**
    * Force re-render of open markdown views so embedded code-block renderers
    * (e.g. Ink/tldraw) pick up the new file content without a leaf change.
    * Uses `leaf.rebuildView()` so both Reading mode and Live Preview update,
-   * and restores the scroll position after the rebuild settles.
+   * and restores the scroll position after the rebuild has laid out.
    */
   private refreshOpenMarkdownPreviews(): void {
     if (!this.workspace) return
     for (const leaf of this.workspace.getLeavesOfType('markdown')) {
       const view = leaf.view
       if (!(view instanceof MarkdownView)) continue
+
+      const rebuild = (leaf as unknown as { rebuildView?: () => void }).rebuildView
+      if (typeof rebuild !== 'function') continue
 
       let savedScroll: number | undefined
       try {
@@ -450,19 +468,23 @@ export class SharedFolderWatcher {
         /* ignore */
       }
 
-      ;(leaf as unknown as { rebuildView?: () => void }).rebuildView?.()
+      rebuild.call(leaf)
 
       if (savedScroll !== undefined) {
-        setTimeout(() => {
-          try {
-            const refreshed = leaf.view
-            if (refreshed instanceof MarkdownView) {
-              refreshed.currentMode?.applyScroll?.(savedScroll as number)
+        // Two animation frames: first one fires after layout, second after paint.
+        // setTimeout(0) wasn't reliably late enough on slower devices.
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            try {
+              const refreshed = leaf.view
+              if (refreshed instanceof MarkdownView) {
+                refreshed.currentMode?.applyScroll?.(savedScroll as number)
+              }
+            } catch {
+              /* ignore */
             }
-          } catch {
-            /* ignore */
-          }
-        }, 0)
+          })
+        })
       }
     }
   }
