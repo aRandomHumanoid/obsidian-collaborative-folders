@@ -432,15 +432,37 @@ export class SharedFolderWatcher {
   }
 
   /**
-   * Force re-render of open markdown previews so embedded code-block renderers
+   * Force re-render of open markdown views so embedded code-block renderers
    * (e.g. Ink/tldraw) pick up the new file content without a leaf change.
+   * Uses `leaf.rebuildView()` so both Reading mode and Live Preview update,
+   * and restores the scroll position after the rebuild settles.
    */
   private refreshOpenMarkdownPreviews(): void {
     if (!this.workspace) return
     for (const leaf of this.workspace.getLeavesOfType('markdown')) {
       const view = leaf.view
-      if (view instanceof MarkdownView) {
-        view.previewMode?.rerender(true)
+      if (!(view instanceof MarkdownView)) continue
+
+      let savedScroll: number | undefined
+      try {
+        savedScroll = view.currentMode?.getScroll?.()
+      } catch {
+        /* ignore */
+      }
+
+      ;(leaf as unknown as { rebuildView?: () => void }).rebuildView?.()
+
+      if (savedScroll !== undefined) {
+        setTimeout(() => {
+          try {
+            const refreshed = leaf.view
+            if (refreshed instanceof MarkdownView) {
+              refreshed.currentMode?.applyScroll?.(savedScroll as number)
+            }
+          } catch {
+            /* ignore */
+          }
+        }, 0)
       }
     }
   }
