@@ -449,8 +449,13 @@ export class SharedFolderWatcher {
   /**
    * Force re-render of open markdown views so embedded code-block renderers
    * (e.g. Ink/tldraw) pick up the new file content without a leaf change.
-   * Uses `leaf.rebuildView()` so both Reading mode and Live Preview update,
-   * and restores the scroll position after the rebuild has laid out.
+   *
+   * Uses Obsidian's ephemeral state (the same mechanism it uses to restore
+   * scroll when you navigate back to a file) rather than `getScroll`/`applyScroll`
+   * directly — that pair returned different units across Live Preview vs Reading
+   * mode and raced against `rebuildView`'s async content reload, so scroll
+   * snapped to the top on slower restores. Ephemeral state survives `rebuildView`
+   * because Obsidian applies it once the new view finishes loading the file.
    */
   private refreshOpenMarkdownPreviews(): void {
     if (!this.workspace) return
@@ -461,31 +466,40 @@ export class SharedFolderWatcher {
       const rebuild = (leaf as unknown as { rebuildView?: () => void }).rebuildView
       if (typeof rebuild !== 'function') continue
 
-      let savedScroll: number | undefined
-      try {
-        savedScroll = view.currentMode?.getScroll?.()
-      } catch {
-        /* ignore */
-      }
+      const eState = this.safeGetEphemeralState(leaf)
 
       rebuild.call(leaf)
 
-      if (savedScroll !== undefined) {
-        // Two animation frames: first one fires after layout, second after paint.
-        // setTimeout(0) wasn't reliably late enough on slower devices.
+      if (eState) {
+        // Reapply immediately so Obsidian's own load-time scroll restore sees
+        // our values, then reapply on next frame in case the view's load
+        // finished after the immediate call.
+        this.safeSetEphemeralState(leaf, eState)
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            try {
-              const refreshed = leaf.view
-              if (refreshed instanceof MarkdownView) {
-                refreshed.currentMode?.applyScroll?.(savedScroll as number)
-              }
-            } catch {
-              /* ignore */
-            }
+            this.safeSetEphemeralState(leaf, eState)
           })
         })
       }
+    }
+  }
+
+  private safeGetEphemeralState(leaf: { getEphemeralState?: () => unknown }): unknown {
+    try {
+      return leaf.getEphemeralState?.()
+    } catch {
+      return undefined
+    }
+  }
+
+  private safeSetEphemeralState(
+    leaf: { setEphemeralState?: (state: unknown) => void },
+    state: unknown
+  ): void {
+    try {
+      leaf.setEphemeralState?.(state)
+    } catch {
+      /* ignore */
     }
   }
 
