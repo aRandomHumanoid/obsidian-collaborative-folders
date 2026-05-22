@@ -35,3 +35,11 @@ export const CRDT_EXTENSIONS = new Set(['.md', '.markdown'])
 
 /** File extensions for canvas files */
 export const CANVAS_EXTENSIONS = new Set(['.canvas'])
+
+/**
+ * Blob-mode extensions where divergent local content is overwritten without
+ * creating a `(conflict N)` copy. Used for files whose format is a frequently-
+ * rewritten snapshot rather than a mergeable document — e.g. tldraw-backed
+ * Ink drawings, which would otherwise produce a copy on every stroke.
+ */
+export const LWW_BLOB_EXTENSIONS = new Set(['.drawing', '.writing'])

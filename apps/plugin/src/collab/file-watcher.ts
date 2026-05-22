@@ -3,6 +3,7 @@ import {
   SHARED_CONFIG_FILENAME,
   CRDT_EXTENSIONS,
   CANVAS_EXTENSIONS,
+  LWW_BLOB_EXTENSIONS,
   normalizeRelativePath,
   resolveSharedPath,
   type FileTreeEntry,
@@ -436,9 +437,27 @@ export class SharedFolderWatcher {
       const localContent = await this.vault.readBinary(existing)
       const localHash = await computeHash(localContent)
       if (localHash === contentHash) return
-      await this.preserveConflictCopy(fullPath, localContent)
+      if (!this.isLwwBlob(fullPath)) {
+        await this.preserveConflictCopy(fullPath, localContent)
+      }
     }
     await this.downloadAndWrite(fullPath, contentHash)
+  }
+
+  /**
+   * Whether a blob path should be resolved last-write-wins (no conflict copy).
+   * Covers tldraw/Ink source files directly and their paired `.png` previews.
+   */
+  private isLwwBlob(fullPath: string): boolean {
+    const ext = '.' + (fullPath.split('.').pop()?.toLowerCase() ?? '')
+    if (LWW_BLOB_EXTENSIONS.has(ext)) return true
+    if (ext === '.png') {
+      const base = fullPath.slice(0, fullPath.length - '.png'.length)
+      for (const inkExt of LWW_BLOB_EXTENSIONS) {
+        if (this.vault.getAbstractFileByPath(base + inkExt)) return true
+      }
+    }
+    return false
   }
 
   private async preserveConflictCopy(fullPath: string, content: ArrayBuffer): Promise<void> {
