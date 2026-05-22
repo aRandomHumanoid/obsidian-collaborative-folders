@@ -1033,7 +1033,8 @@ export default class ObsidianTeamsPlugin extends Plugin {
         this.settings.serverUrl,
         () => getOrRefreshToken(this, folderId),
         this.keyManager,
-        (oldPath, newPath) => this.isRootRebindRename(oldPath, newPath)
+        (oldPath, newPath) => this.isRootRebindRename(oldPath, newPath),
+        this.app.workspace
       )
 
       // Seed initial CRDT file content into Yjs when scanning existing files

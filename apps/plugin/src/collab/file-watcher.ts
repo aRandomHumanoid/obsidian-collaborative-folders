@@ -1,4 +1,4 @@
-import { FileManager, Vault, TAbstractFile, TFile, TFolder } from 'obsidian'
+import { FileManager, MarkdownView, Vault, TAbstractFile, TFile, TFolder, Workspace } from 'obsidian'
 import {
   SHARED_CONFIG_FILENAME,
   CRDT_EXTENSIONS,
@@ -38,7 +38,8 @@ export class SharedFolderWatcher {
     private serverUrl: string,
     private getAuthToken: () => Promise<string | null>,
     private keyManager: FolderKeyManager,
-    private isRootRebindRename: ((oldPath: string, newPath: string) => boolean) | null = null
+    private isRootRebindRename: ((oldPath: string, newPath: string) => boolean) | null = null,
+    private workspace: Workspace | null = null
   ) {}
 
   private initialCrdtCallback: ((fileId: string, relativePath: string, content: string) => void) | null = null
@@ -422,8 +423,25 @@ export class SharedFolderWatcher {
         }
         await this.vault.createBinary(fullPath, decrypted)
       }
+      if (this.isLwwBlob(fullPath)) {
+        this.refreshOpenMarkdownPreviews()
+      }
     } catch (err) {
       console.error(`[teams] Blob download failed for ${fullPath} (${contentHash}):`, err)
+    }
+  }
+
+  /**
+   * Force re-render of open markdown previews so embedded code-block renderers
+   * (e.g. Ink/tldraw) pick up the new file content without a leaf change.
+   */
+  private refreshOpenMarkdownPreviews(): void {
+    if (!this.workspace) return
+    for (const leaf of this.workspace.getLeavesOfType('markdown')) {
+      const view = leaf.view
+      if (view instanceof MarkdownView) {
+        view.previewMode?.rerender(true)
+      }
     }
   }
 
