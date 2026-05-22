@@ -33,6 +33,7 @@ Versions are tagged on this fork's releases.
 | `0.1.26` | Replaced `previewMode.rerender(true)` (Reading mode only) with `leaf.rebuildView()`. Live Preview embeds now refresh too. Scroll position captured/restored via `currentMode.getScroll()` / `applyScroll()`. |
 | `0.1.27` | Debounced the rebuild by 250ms so Ink's paired `.drawing` + `.png` save produces one rebuild instead of two. Switched scroll-restore timing from `setTimeout(0)` to double `requestAnimationFrame` for slower devices. |
 | `0.1.28` | Replaced `getScroll`/`applyScroll` (unit-mismatched across modes, raced against `rebuildView`'s async file reload) with `leaf.getEphemeralState()` / `setEphemeralState()` — Obsidian's own scroll+cursor preservation mechanism, applied immediately and again on the second rAF as a safety net. |
+| `0.1.29` | Fixed editor cursor snapping to end-of-line on every backspace in shared `.md` files. Three root-cause fixes: (a) [`isSuppressed`](apps/plugin/src/collab/file-watcher.ts) no longer consumes the suppression on first check — Obsidian fires multiple `modify` events per write and the second was slipping through; (b) external CRDT imports now apply a minimal common-prefix/common-suffix diff via [`applyTextDiffToYText`](apps/plugin/src/collab/ytext-diff.ts) instead of `ytext.delete(0, len) + ytext.insert(0, content)`, preserving cursor relative positions across imports; (c) `reconcileDiskWithYjs`'s `vault.modify` is now wrapped in `runWithSuppressedPath` so it doesn't trigger a self-import. |
 
 ## Known Gaps
 

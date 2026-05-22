@@ -27,6 +27,7 @@ import { findSharedFolders, removeSharedConfig, type SharedFolderLocation } from
 import { YjsManager, type DocSession } from './collab/yjs-manager'
 import { FileTreeSync } from './collab/file-tree-sync'
 import { SharedFolderWatcher } from './collab/file-watcher'
+import { applyTextDiffToYText } from './collab/ytext-diff'
 import { AttachmentLocalizer } from './collab/attachment-localizer'
 import {
   createHostedCheckoutSession,
@@ -1091,10 +1092,7 @@ export default class ObsidianTeamsPlugin extends Plugin {
 
         const yjsContent = this.readSessionContent(session)
         if (yjsContent !== diskContent) {
-          session.ydoc.transact(() => {
-            session.ytext.delete(0, session.ytext.length)
-            session.ytext.insert(0, diskContent)
-          })
+          applyTextDiffToYText(session.ydoc, session.ytext, yjsContent, diskContent)
           debugLog(`[teams] Imported external edit for ${normalizedRelativePath}`)
         }
       })
@@ -1572,7 +1570,11 @@ export default class ObsidianTeamsPlugin extends Plugin {
 
       const diskContent = await this.app.vault.cachedRead(file)
       if (diskContent === yjsContent) return
-      await this.app.vault.modify(file, yjsContent)
+      // Suppress vault events for this self-initiated write so the file-watcher
+      // doesn't treat it as an external edit and round-trip it back into Y.Text.
+      await folderSession.watcher.runWithSuppressedPath(file.path, async () => {
+        await this.app.vault.modify(file, yjsContent)
+      })
       debugLog(`[teams] Reconciled disk content for ${file.path}`)
     } catch (err) {
       console.error(`[teams] Failed to reconcile disk content for ${file.path}:`, err)

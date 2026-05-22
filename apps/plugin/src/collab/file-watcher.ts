@@ -631,11 +631,12 @@ export class SharedFolderWatcher {
   }
 
   private isSuppressed(path: string): boolean {
-    if (this.suppressedPaths.has(path)) {
-      this.suppressedPaths.delete(path)
-      return true
-    }
-    return false
+    // Pure check — cleanup is handled by `unsuppress`'s setTimeout. The previous
+    // "consume on first check" pattern broke when Obsidian fired multiple modify
+    // events for a single write: the first event ate the suppression, the second
+    // got treated as an external edit and triggered a delete-all+insert that
+    // dropped editor cursor positions.
+    return this.suppressedPaths.has(path)
   }
 
   private resolveSafeSharedPath(relativePath: string): string | null {
